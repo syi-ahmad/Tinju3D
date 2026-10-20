@@ -41,8 +41,11 @@ const desiredCamera = new THREE.Vector3();
 const moveDirection = new THREE.Vector3();
 const forward = new THREE.Vector3();
 const right = new THREE.Vector3();
+const ringFloorY = 1.12;
+const jumpGravity = 16.8;
 let player = null;
 let characterRig = null;
+let characterSkinnedMeshes = [];
 let mixer = null;
 let actions = {};
 let activeLocomotion = '';
@@ -57,13 +60,15 @@ let airborne = false;
 let jumpVelocity = 0;
 let attackCooldown = 0;
 let queuedRecovery = null;
-let attackMotion = null;
 let toastTimer;
 
+// The three in-place cycles are 4/3, 14/15, and 2/3 seconds long.
+// Matching travel per full cycle keeps the feet from sliding against the floor.
+const travelPerLoop = 2.05;
 const movementSpeeds = {
-  Walk_Loop: 1.55,
-  Jog_Fwd_Loop: 2.35,
-  Sprint_Loop: 3.35,
+  Walk_Loop: travelPerLoop / (4 / 3),
+  Jog_Fwd_Loop: travelPerLoop / (14 / 15),
+  Sprint_Loop: travelPerLoop / (2 / 3),
   Idle_Loop: 0
 };
 
@@ -84,15 +89,16 @@ function setLocomotion(name, fade = 0.16) {
   activeLocomotion = name;
 }
 
-function playOneShot(name, { replace = false, timeScale = 1 } = {}) {
+function playOneShot(name, { replace = false, timeScale = 1, fadeIn = 0.03, fadeOut = 0.04 } = {}) {
   if (!mixer || !actions[name] || (oneShot && !replace)) return false;
-  if (oneShot) oneShot.fadeOut(0.06);
-  if (activeLocomotion && actions[activeLocomotion]) actions[activeLocomotion].fadeOut(0.08);
+  // INSTANT transition for snappy feel - no blending delay!
+  if (oneShot) oneShot.stop(); // Hard stop, no fade
+  if (activeLocomotion && actions[activeLocomotion]) actions[activeLocomotion].fadeOut(fadeIn);
   const action = actions[name];
   action.reset().setEffectiveTimeScale(timeScale).setEffectiveWeight(1);
   action.setLoop(THREE.LoopOnce, 1);
   action.clampWhenFinished = true;
-  action.fadeIn(0.06).play();
+  action.fadeIn(fadeIn).play(); // Minimal fade for instant response
   oneShot = action;
   activeLocomotion = '';
   return true;
@@ -106,33 +112,31 @@ function syncLocomotion() {
   setLocomotion(running && moving ? 'Sprint_Loop' : jogging && moving ? 'Jog_Fwd_Loop' : moving ? 'Walk_Loop' : 'Idle_Loop');
 }
 
+// REMOVED: arm-only clips cause floaty, weightless punches!
+// Real fighting games (Bully, GTA, Tekken) use FULL BODY animation for proper weight transfer
+// Body rotation, hip twist, and leg planted create the punch power and snap
+
 function attack(name, label) {
   if (attackCooldown > 0 || !player || airborne || oneShot) return;
   const profiles = {
-    Punch_Jab: { timeScale: 1.02, reach: 0.34, driveEnd: 0.32, returnRatio: 0.22 },
-    Punch_Cross: { timeScale: 0.92, reach: 0.52, driveEnd: 0.38, returnRatio: 0.28 },
-    Melee_Hook: { timeScale: 0.86, reach: 0.61, driveEnd: 0.25, returnRatio: 0.3, recovery: 'Melee_Hook_Rec', recoveryScale: 1.04 }
+    // Jab: lightning fast like fighting games (3-5 frame startup @ 60fps = ~0.05-0.08s)
+    // With full body weight transfer - snap punch with hip rotation!
+    Punch_Jab: { timeScale: 4.5, fadeIn: 0.03, fadeOut: 0.04 },
+    // Cross: power punch with body rotation (8-12 frames startup = ~0.13-0.20s)
+    // Full torso twist for maximum impact!
+    Punch_Cross: { timeScale: 3.8, fadeIn: 0.04, fadeOut: 0.05 },
+    // Hook: arc punch with hip drive (12-15 frames = ~0.20-0.25s)
+    // Wide swing needs full body commitment!
+    Melee_Hook: { timeScale: 3.5, recovery: 'Melee_Hook_Rec', recoveryScale: 4.0, fadeIn: 0.04, fadeOut: 0.04 }
   };
   const profile = profiles[name];
   const mainAction = actions[name];
   if (!profile || !mainAction) return;
   const recoveryAction = profile.recovery ? actions[profile.recovery] : null;
   const recoveryScale = profile.recoveryScale || 1;
-  const totalDuration = mainAction.getClip().duration / profile.timeScale +
-    (recoveryAction ? recoveryAction.getClip().duration / recoveryScale : 0);
-  const direction = new THREE.Vector3(Math.sin(player.rotation.y), 0, Math.cos(player.rotation.y));
-  if (playOneShot(name, { timeScale: profile.timeScale })) {
-    queuedRecovery = recoveryAction ? { name: profile.recovery, timeScale: recoveryScale } : null;
-    attackMotion = {
-      elapsed: 0,
-      duration: totalDuration,
-      reach: profile.reach,
-      driveEnd: profile.driveEnd,
-      returnRatio: profile.returnRatio,
-      lastOffset: 0,
-      direction
-    };
-    attackCooldown = 0.2;
+  if (playOneShot(name, { timeScale: profile.timeScale, fadeIn: profile.fadeIn, fadeOut: profile.fadeOut })) {
+    queuedRecovery = recoveryAction ? { name: profile.recovery, timeScale: recoveryScale, fadeIn: profile.fadeIn, fadeOut: profile.fadeOut } : null;
+    attackCooldown = 0.05; // Fighting game standard: 3-5 frame window
     showToast(label);
   }
 }
@@ -140,8 +144,8 @@ function attack(name, label) {
 function startJump() {
   if (!player || airborne || oneShot || !actions['Jump_Start'] || !actions['Jump_Land']) return;
   airborne = true;
-  jumpVelocity = 3;
-  playOneShot('Jump_Start', { timeScale: 2.8 });
+  jumpVelocity = 4.2;
+  playOneShot('Jump_Start', { timeScale: 3.5, fadeIn: 0.02, fadeOut: 0.03 }); // Instant jump like Bully/GTA
 }
 
 function makeFallbackCharacter() {
@@ -204,6 +208,10 @@ async function loadAssets() {
   characterRig.updateMatrixWorld(true);
   const groundedBounds = new THREE.Box3().setFromObject(characterRig);
   characterRig.position.y -= groundedBounds.min.y;
+  characterSkinnedMeshes = [];
+  characterRig.traverse((object) => {
+    if (object.isSkinnedMesh) characterSkinnedMeshes.push(object);
+  });
 
   player = new THREE.Group();
   player.position.set(0, 1.12, 0.8);
@@ -215,19 +223,23 @@ async function loadAssets() {
     const desired = ['Idle_Loop', 'Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Jump_Start', 'Jump_Land', 'Punch_Jab', 'Punch_Cross', 'Hit_Head', 'Hit_Chest'];
     for (const name of desired) {
       const clip = animationAsset.animations.find((item) => item.name.toLowerCase() === name.toLowerCase());
-      if (clip) actions[name] = mixer.clipAction(clip);
+      if (clip) actions[name] = mixer.clipAction(clip); // FULL BODY - no more arm-only filter!
     }
     for (const name of ['Melee_Hook', 'Melee_Hook_Rec']) {
       const clip = combatAnimationAsset?.animations?.find((item) => item.name.toLowerCase() === name.toLowerCase());
-      if (clip) actions[name] = mixer.clipAction(clip);
+      if (clip) actions[name] = mixer.clipAction(clip); // FULL BODY for proper weight transfer!
     }
     mixer.addEventListener('finished', (event) => {
       if (event.action === oneShot) {
         if (queuedRecovery) {
           const next = queuedRecovery;
           queuedRecovery = null;
-          playOneShot(next.name, { replace: true, timeScale: next.timeScale });
+          playOneShot(next.name, { replace: true, timeScale: next.timeScale, fadeIn: next.fadeIn, fadeOut: next.fadeOut });
           return;
+        }
+        // INSTANT snap back to idle - fighting game standard!
+        if (['Punch_Jab', 'Punch_Cross', 'Melee_Hook', 'Melee_Hook_Rec'].includes(event.action.getClip().name)) {
+          event.action.stop(); // Hard stop for instant combo readiness
         }
         oneShot = null;
         syncLocomotion();
@@ -253,12 +265,12 @@ function updatePlayer(dt) {
 
   if (airborne) {
     player.position.y += jumpVelocity * dt;
-    jumpVelocity -= 12 * dt;
-    if (player.position.y <= 1.12 && jumpVelocity < 0) {
-      player.position.y = 1.12;
+    jumpVelocity -= jumpGravity * dt;
+    if (player.position.y <= ringFloorY && jumpVelocity < 0) {
+      player.position.y = ringFloorY;
       jumpVelocity = 0;
       airborne = false;
-      playOneShot('Jump_Land', { replace: true, timeScale: 2 });
+      playOneShot('Jump_Land', { replace: true, timeScale: 3.2, fadeIn: 0.02, fadeOut: 0.03 });
     }
   } else if (moveDirection.lengthSq() > 0 && !oneShot) {
     const speed = movementSpeeds[keys.has('shift') ? 'Sprint_Loop' : (keys.has('control') || keys.has('ctrl')) ? 'Jog_Fwd_Loop' : 'Walk_Loop'];
@@ -268,23 +280,16 @@ function updatePlayer(dt) {
     delta = Math.atan2(Math.sin(delta), Math.cos(delta));
     player.rotation.y += delta * (1 - Math.exp(-12 * dt));
   }
-  if (attackMotion) {
-    attackMotion.elapsed = Math.min(attackMotion.duration, attackMotion.elapsed + dt);
-    const t = attackMotion.elapsed / attackMotion.duration;
-    const smooth = (value) => value * value * (3 - 2 * value);
-    const driveEnd = attackMotion.driveEnd;
-    const progress = t < driveEnd
-      ? smooth(t / driveEnd)
-      : 1 - (1 - attackMotion.returnRatio) * smooth((t - driveEnd) / (1 - driveEnd));
-    const offset = attackMotion.reach * progress;
-    player.position.addScaledVector(attackMotion.direction, offset - attackMotion.lastOffset);
-    attackMotion.lastOffset = offset;
-    if (t >= 1) attackMotion = null;
-  }
-  // Keep the character on the canvas and inside the ropes.
+  // Keep the character inside the ropes.
   player.position.x = THREE.MathUtils.clamp(player.position.x, -3.35, 3.35);
   player.position.z = THREE.MathUtils.clamp(player.position.z, -3.35, 3.35);
   if (mixer) mixer.update(dt);
+  if (!airborne && characterRig) {
+    player.updateMatrixWorld(true);
+    for (const skinnedMesh of characterSkinnedMeshes) skinnedMesh.computeBoundingBox();
+    const characterBounds = new THREE.Box3().setFromObject(characterRig);
+    player.position.y += ringFloorY - characterBounds.min.y;
+  }
   syncLocomotion();
 }
 
