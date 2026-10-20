@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#050b15" />
+    <title>TINJU 3D — Fight Night</title>
+  </head>
+  <body>
+    <main id="game">
+      <canvas id="scene" aria-label="Arena tinju 3D"></canvas>
+      <header class="topbar">
+        <div class="brand"><span class="brand-mark">T</span><span>TINJU 3D<small>FIGHT NIGHT · RING 01</small></span></div>
+        <div class="live"><i></i> LATIHAN</div>
+      </header>
+      <section id="loading" class="loading">
+        <div class="loader-ring"></div>
+        <p>MENYIAPKAN ARENA</p>
+        <h1 id="loadingStatus">Lampu ring sedang dinyalakan…</h1>
+      </section>
+      <section id="welcome" class="welcome hidden">
+        <div class="welcome-card">
+          <div class="eyebrow">MALAM PERTARUNGAN · 01</div>
+          <h1>Masuk ke<br /><em>ring.</em></h1>
+          <p>Arena sudah siap. Gerakkan petarungmu, putar kamera, lalu latih jab, cross, dan hook.</p>
+          <button id="startButton">MULAI LATIHAN <b>↗</b></button>
+          <div class="welcome-note">PENONTON SUDAH MENUNGGU</div>
+        </div>
+      </section>
+      <section id="hud" class="hud hidden">
+        <div class="status-card"><span class="status-dot"></span><div><small>MODE</small><strong>LATIHAN DI RING</strong></div></div>
+        <div id="toast" class="toast"></div>
+        <div class="control-panel">
+          <div><b>W A S D</b><span>GERAK</span></div>
+          <div><b>CTRL</b><span>JOG</span></div>
+          <div><b>J</b><span>JAB</span></div>
+          <div><b>K</b><span>CROSS</span></div>
+          <div><b>L</b><span>HOOK</span></div>
+          <div><b>SHIFT</b><span>LARI</span></div>
+          <div><b>SPACE</b><span>LOMPAT</span></div>
+          <div><b>GESER MOUSE</b><span>PUTAR KAMERA</span></div>
+          <div><b>ESC</b><span>LEPAS KURSOR</span></div>
+        </div>
+        <div class="reticle"></div>
+        <div class="bottom-label"><span></span> FIGHT NIGHT <span></span></div>
+      </section>
+      <div id="error" class="error hidden"></div>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,16 @@
+-------------------------------------------------------
+License:
+CC0 1.0 Universal (CC0 1.0) 
+Public Domain Dedication
+https://creativecommons.org/publicdomain/zero/1.0/
+
+------------------------------------------------------
+Models by @Quaternius
+Consider supporting me on Patreon!
+
+https://www.patreon.com/quaternius
+
+Universal Animation Library 2 (UAL2) is also by Quaternius and is licensed
+under CC0 1.0 Universal. Official pack page:
+https://quaternius.com/packs/universalanimationlibrary2.html
+
